@@ -2,21 +2,9 @@
 $cpuGlobalThreshold = 70  # Puoi personalizzare questa soglia
 
 
-function MonitoraggioCaricoCPU {
-    # Ottieni il carico totale della CPU
-    $cpuLoad = (Get-Counter '\Processor(_Total)\% Processor Time').CounterSamples.CookedValue
-    $cpuLoadArrotondato = [Math]::Round($cpuLoad, 2)
-
-    # Controlla se il carico totale della CPU supera la soglia globale
-    if ($cpuLoadArrotondato -ge $cpuGlobalThreshold) {
-        msg ulj9 "CPU elevata"
-        msg administrator "CPU elevata"
-    }
-}
-
 while ($true) {
     # Attendiamo tot secondi prima di controllare nuovamente
-    Start-Sleep -Seconds 180
+    Start-Sleep -Seconds 1800
 
     # Ottieni il carico totale della CPU
     $cpuLoad = (Get-Counter '\Processor(_Total)\% Processor Time').CounterSamples.CookedValue
@@ -79,6 +67,24 @@ while ($true) {
             $logonDateTime= (Get-Date).Date.AddHours(7)
         }
 
+        #funzione per il controllo ricorrente della cpu del sistema
+        function MonitoraggioCaricoCPU {
+            param (
+                [int]$cpuGlobalThreshold
+            )
+            # Ottieni il carico totale della CPU
+            $cpuLoad = (Get-Counter '\Processor(_Total)\% Processor Time').CounterSamples.CookedValue
+            $cpuLoadArrotondato = [Math]::Round($cpuLoad, 2)
+            
+        
+            # Controlla se il carico totale della CPU supera la soglia globale
+            if ($cpuLoadArrotondato -ge $cpuGlobalThreshold) {
+                Write-Host "Carico totale della CPU supera la soglia globale ($cpuGlobalThreshold%)."
+                msg ulj9 "CPU elevata"
+                #msg administrator "CPU elevata"
+            }
+        }
+
         # Ottieni informazioni sui processi associati a un utente RDP specifico tramite SI e Id negli user
         function Get-RDPUserProcesses {
             param (
@@ -107,64 +113,71 @@ while ($true) {
             }
 
             $calcoloCPU = @()  # Array per calcolo CPU deviazione standard 
-            $Cpu = 0
-
             #Tempo tot di CPu per tutti i processi
             $CPUProcesses=@()
-            $allProcesses = Get-Process
-            $CPU=0
-            $Cpu = 0
-
+           
+            
             for ($i = 1; $i -le 2; $i++) {
-                #calcola CPU fino ad ora per det. utente
-                foreach ($process in $Processes) {
-                    $Cpu += $process.CPU   
-                }
-                $calcoloCPU += $Cpu
+                
+                $allProcesses = Get-Process
+                $CpuUtente = 0
+                $CPU=0
 
-                 #Tempo tot di CPu per tutti i processi
-                 foreach ($process in $allProcesses){
+                foreach ($process in $Processes) {
+                    $CpuUtente += $process.CPU   #calcola CPU fino ad ora per det. utente
+                }
+                #Tempo tot di CPu per tutti i processi
+                foreach ($process in $allProcesses){
                     $CPU += $process.CPU
                 }
 
-                $CPUProcesses+= $CPU
-                Start-Sleep -Milliseconds 500
+                $CPUProcesses += $CPU
+        
+                $calcoloCPU += $CpuUtente
+                Start-Sleep -Seconds 1
             }
-
-            MonitoraggioCaricoCPU
+            
+            $cpuLoad = (Get-Counter '\Processor(_Total)\% Processor Time').CounterSamples.CookedValue
+            MonitoraggioCaricoCPU -cpuGlobalThreshold $cpuGlobalThreshold
 
             $CPUProcess = $CPUProcesses[1]-$CPUProcesses[0]
-            Write-Host $CPUProcesses
             Write-Host
             
             #variazione della cpu di ogni utente in quell'arco di tempo di 1 secondo
             $variazioneCPU = $calcoloCPU[1] - $calcoloCPU[0]
 
-            Write-Host "calcolo 1: $calcoloCPU[0]"
-            Write-Host "calcolo 2: $calcoloCPU[1]"
-           
+            Write-Host "calcolo 1: $calcoloCPU"
+        
             Write-Host "$CPUProcess "
 
             Write-Host " dato 1: $variazioneCPU"
 
             #calcolo scostamento percentuale dal tempo 0 a tempo 1 per vedere se salito o diminuito.
             #-100 serve per vedere se la variazione sia positiva o negativa.
-            $Variazione=(($calcoloCPU[1]*100)/$calcoloCPU[0])-100
-
-            
-            Write-Host " dato 2: $Variazione"
+            #$Variazione=(($calcoloCPU[1]*100)/$calcoloCPU[0])-100
+            #Write-Host " dato 2: $Variazione"
             
             #se la variazione è negativa per ora salto l'utente
             if($variazioneCPU -gt 0 ){
-             $CPUProcess = ($variazioneCPU*100)/$CPUProcess
+            #vedo quanto ha inciso l'utente come percentuale e poi faccio la proporzione sul totale della cpu
+                $percUtente = ($variazioneCPU*100)/$CPUProcess
+                $CPUProcess=($cpuLoad*$percUtente)/100 
+
+           } 
+           if ($variazioneCPU -eq 0) {
+                <# teoricamente se è uguale a 0 significa che il consume della cpu non c'è stato quindi possiamo credere che il consumo sia stato quasi 0
+                dico quasi perchè i numeri sono arrotondati e potrebbe esserci anche una piccola parte usata #>
+                $CPUProcess = 0.00
+
                 
-           } elseif ($variazioneCPU -eq 0) {
-                <# teoricamente se è uguale a 0 significa che il consume della cpu è stato costante  e possiamo porre i secondi di utilizzo della cpu
-                uguale ad uno, perchè per tutto quel secondo abbiamo utilizzato la CPU #>
-                $CPUProcess = 0.01/$CPUProcess 
-                
-            } else{
-              
+            }
+            if($CPUProcess -lt 0){
+                <#ritorna negativo quando un utente si slogga così i suoi secondi cpu dei processi si azzera quindi
+                 del tutto e la cpu generale risulta diminuita dove in realta non è dimiuita #>
+                 $percUtente = ($variazioneCPU*100)/$CPUProcess
+                 $CPUProcess=($cpuLoad*$percUtente)/100
+                #il risultato lo cambierò di segno nel risultato, è un calcolo un po' approssimato.
+               
             }
 
             $CPUProcess=[Math]::Round($CPUProcess,4)
@@ -172,30 +185,16 @@ while ($true) {
             Write-Host "$userName=$CPUProcess%"
             Write-Host
             Write-Host
-
+            
             return $CPUProcess
-           
         }
 
-         function Get-TimeDifferenceInSeconds {
-            param (
-                [datetime]$startTime
-            )
-
-            $endTime=Get-Date 
-            $timeDifference = $endTime.Subtract($startTime)
-            $secondsDifference = $timeDifference.TotalSeconds
-
-            $secondsDifference = [Math]::Round($secondsDifference, 0)
-
-            return $secondsDifference
-        }
-
-        $secondsDifference = Get-TimeDifferenceInSeconds -startTime $logonDateTime 
-
+        
         # Calcolo medio CPU utilizzando le due funzioni
         $rdpUserName = $idUser
+        #ottengo tutti i processi associati ad un singolo utente
         $rdpUserProcesses = Get-RDPUserProcesses -idUser $rdpUserName
+        #calcolo finale dell'utilizzo della cpu da parte di un utente dal secondo 0 al secondo 1
         $averageCpuUsage = Get-DifferenzaPerct -Processes $rdpUserProcesses 
 
 
@@ -246,4 +245,9 @@ while ($true) {
 
 $CurrentTime = Get-Date -Format "yyyyMMdd-HHmm-TS1"  # Aggiungi "TS1" al nome del file
 $OutputFile = Join-Path -Path "C:\checkCpu" -ChildPath "$CurrentTime.txt"
+
+ # Salvare i dati in un file locale
+$quserData | Format-Table -AutoSize | Out-File -FilePath $OutputFile
+
+
 }
