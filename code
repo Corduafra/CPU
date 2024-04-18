@@ -65,7 +65,15 @@ while ($true) {
         if ($logonDateTime.Date -ne (Get-Date).Date) {
             # Assegna la data di oggi con l'orario 07:00:00
             $logonDateTime= (Get-Date).Date.AddHours(7)
-        }
+        }  
+        
+        
+        # Calcolo medio CPU utilizzando le due funzioni
+        $rdpUserName = $idUser
+        #ottengo tutti i processi associati ad un singolo utente
+        $rdpUserProcesses = Get-RDPUserProcesses -idUser $rdpUserName
+        #calcolo finale dell'utilizzo della cpu da parte di un utente dal secondo 0 al secondo 1
+        $averageCpuUsage = Get-DifferenzaPerct -Processes $rdpUserProcesses 
 
         #funzione per il controllo ricorrente della cpu del sistema
         function MonitoraggioCaricoCPU {
@@ -171,7 +179,7 @@ while ($true) {
 
                 
             }
-            if($CPUProcess -lt 0){
+            if($variazioneCPU -lt 0){
                 <#ritorna negativo quando un utente si slogga così i suoi secondi cpu dei processi si azzera quindi
                  del tutto e la cpu generale risulta diminuita dove in realta non è dimiuita #>
                  $percUtente = ($variazioneCPU*100)/$CPUProcess
@@ -190,12 +198,7 @@ while ($true) {
         }
 
         
-        # Calcolo medio CPU utilizzando le due funzioni
-        $rdpUserName = $idUser
-        #ottengo tutti i processi associati ad un singolo utente
-        $rdpUserProcesses = Get-RDPUserProcesses -idUser $rdpUserName
-        #calcolo finale dell'utilizzo della cpu da parte di un utente dal secondo 0 al secondo 1
-        $averageCpuUsage = Get-DifferenzaPerct -Processes $rdpUserProcesses 
+      
 
 
         # Creazione tabella
@@ -236,6 +239,12 @@ while ($true) {
         $Username = ($fields[0] -replace '^.*=') -replace ';$'
         $CPU = ($fields[1] -replace '-(?=\d)' -replace '^.*=' -replace ';$') -replace '\.', ','
         $tempo =($fields[3] -replace '^.*=') -replace ';$' 
+
+         # Rimuovi gli spazi bianchi dai valori
+        $Username = $Username.Trim()
+        $CPU = $CPU.Trim()
+        $tempo = $tempo.Trim()
+        
             [PSCustomObject]@{
                 Username = $Username
                 CPU = $CPU
